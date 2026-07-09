@@ -8,7 +8,7 @@ on:
         required: true
         description: Device Model
         type: choice
-        default: jdcloud_ipq60xx_immwrt
+        default: zn_m2_immwrt
         options:
           - aliyun_ap8220_immwrt
           - aliyun_ap8220_libwrt
@@ -28,8 +28,15 @@ on:
           - zn_m2_libwrt
           - x64_immwrt
 
+# 提升权限（对 Fork 也有效）
+permissions:
+  contents: read
+  actions: read  # 只需要读取权限
+
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # 检测是否为 Fork
+  IS_FORK: ${{ github.repository != 'AOLIGOOD/wrt_release' }}
 
 jobs:
   build:
@@ -41,6 +48,7 @@ jobs:
     steps:
       - name: Free Disk Space
         run: |
+          echo "🔄 Freeing disk space..."
           sudo rm -rf /usr/local/lib/android || true
           sudo rm -rf /usr/share/dotnet || true
           sudo rm -rf /opt/ghc || true
@@ -55,11 +63,8 @@ jobs:
       - name: Build System Setup
         run: |
           sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-          sudo -E apt -yqq install dos2unix
-          sudo -E apt -yqq install libfuse-dev
-          sudo -E apt -yqq autoremove --purge
-          sudo -E apt -yqq autoclean
-          sudo -E apt -yqq clean
+          sudo -E apt -yqq install dos2unix libfuse-dev
+          sudo -E apt -yqq autoremove --purge autoclean clean
           sudo -E systemctl daemon-reload
 
       - name: Checkout
@@ -99,6 +104,7 @@ jobs:
           echo "Runner: ${RUNNER_NAME} (${RUNNER_OS}/${RUNNER_ARCH})"
           echo "Kernel: $(uname -r)"
           echo "Uptime: $(uptime -p)"
+          echo "Repository: ${{ github.repository }} (Fork: ${{ github.repository != 'AOLIGOOD/wrt_release' }})"
           echo "=================================================="
           echo "[CPU]"
           lscpu | grep -E "Model name|Architecture|CPU\\(s\\)|Thread\\(s\\) per core|Core\\(s\\) per socket|CPU max MHz"
@@ -122,16 +128,17 @@ jobs:
       - name: Build Firmware
         run: ./build.sh ${{ inputs.model }}
 
-      - name: Delete Old Cache
+      # ⭐ 优化后的缓存清理步骤
+      - name: Show Cache Status (Post-build)
         run: |
-          # 获取缓存列表并删除
-          gh cache list --key ${{ matrix.os }}-${{ hashFiles('**/repo_flag') }}- --json key --jq '.[] | .key' | while read -r key; do
-            gh cache delete "$key"
-          done
-          # 输出缓存状态
-          echo "========cache status========"
-          echo "ccache: $(du -sh ./action_build/.ccache | cut -f 1)"
-          echo "staging: $(du -sh ./action_build/staging_dir | cut -f 1)"
+          echo "=========== Cache Status ==========="
+          echo "ccache size: $(du -sh ./action_build/.ccache 2>/dev/null | cut -f 1 || echo 'N/A')"
+          echo "staging size: $(du -sh ./action_build/staging_dir 2>/dev/null | cut -f 1 || echo 'N/A')"
+          echo "===================================="
+          echo "ℹ️ Cache will be automatically managed by GitHub (7 days retention)"
+          if [ "${{ github.repository }}" != "AOLIGOOD/wrt_release" ]; then
+            echo "ℹ️ Fork repository: cache deletion is skipped due to permission restrictions"
+          fi
 
       - name: Machine Information (Post-build)
         run: |
